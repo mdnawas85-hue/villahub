@@ -46,6 +46,12 @@
   .villa-item:hover .villa-edit,.villa-item:hover .villa-delete{display:flex}
   .villa-map-btn{display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:5px;background:rgba(26,188,156,.12);border:1px solid rgba(26,188,156,.35);font-size:11px;flex-shrink:0;cursor:pointer;transition:all .15s}
   .villa-map-btn:hover{background:rgba(26,188,156,.28)}
+  .region-header{display:flex;align-items:center;justify-content:space-between;padding:6px 8px 4px;margin-top:8px;cursor:pointer;user-select:none;border-radius:6px;transition:background .15s}
+  .region-header:hover{background:var(--bg3)}
+  .region-header:first-child{margin-top:0}
+  .region-name{font-size:10px;font-weight:700;color:var(--accent);letter-spacing:.8px;text-transform:uppercase}
+  .region-toggle{font-size:9px;color:var(--muted)}
+  .region-villas{margin-bottom:4px}
   .bed-edit-input{background:transparent;border:none;border-bottom:1px solid var(--accent);color:var(--text);font-size:11px;width:80px;outline:none;padding:1px 2px}
   .bed-name-label{cursor:pointer;font-size:11px;color:var(--text)}
   .bed-name-label:hover{text-decoration:underline dotted var(--muted)}
@@ -174,9 +180,16 @@
 <div class="modal-overlay" id="modal" style="display:none">
   <div class="modal">
     <h3 id="modal-title">Add New Villa</h3>
-    <div class="form-group">
-      <label class="form-label">Villa Name</label>
-      <input class="form-input" id="f-name" placeholder="e.g. Villa Al-Noor" />
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Villa Name</label>
+        <input class="form-input" id="f-name" placeholder="e.g. Villa Al-Noor" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Region / Area</label>
+        <input class="form-input" id="f-region" placeholder="e.g. Riyadh, Al-Olaya" list="region-list"/>
+        <datalist id="region-list"></datalist>
+      </div>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -500,21 +513,54 @@ function draw3D(){
   });
 }
 function getSelectedVilla(){return villas.find(v=>v.id===selectedId)||villas[0];}
+function _villaCard(v){
+  const allBeds=v.rooms.flatMap(r=>r.beds);
+  const occBeds=allBeds.filter(b=>b.occupied).length,totalBeds=allBeds.length;
+  const pct=totalBeds?Math.round(occBeds/totalBeds*100):0;
+  const dotColor=pct>70?'#2ecc71':pct>40?'#f0932b':'#e74c3c';
+  return`<div class="villa-item ${v.id===selectedId?'active':''}" onclick="selectVilla(${v.id})">
+    <div class="villa-dot" style="background:${dotColor}"></div>
+    <span class="villa-name">${v.name}</span>
+    <span class="villa-badge">${occBeds}/${totalBeds}</span>
+    ${v.lat&&v.lng?`<div class="villa-map-btn" onclick="event.stopPropagation();openMap(${v.id})" title="View on Google Maps">📍</div>`:''}
+    <div class="villa-edit" onclick="event.stopPropagation();openEditVilla(${v.id})" title="Edit villa">✏️</div>
+    <div class="villa-delete" onclick="event.stopPropagation();deleteVilla(${v.id})" title="Delete villa">🗑</div>
+  </div>`;
+}
+function _refreshRegionList(){
+  const dl=document.getElementById('region-list');
+  if(!dl) return;
+  const regions=[...new Set(villas.map(v=>v.region).filter(Boolean))];
+  dl.innerHTML=regions.map(r=>`<option value="${r}">`).join('');
+}
+const _collapsedRegions=new Set();
+function toggleRegion(name){
+  _collapsedRegions.has(name)?_collapsedRegions.delete(name):_collapsedRegions.add(name);
+  renderSidebar();
+}
 function renderSidebar(){
-  document.getElementById('villa-list').innerHTML=villas.map(v=>{
-    const allBeds=v.rooms.flatMap(r=>r.beds);
-    const occBeds=allBeds.filter(b=>b.occupied).length,totalBeds=allBeds.length;
-    const pct=totalBeds?Math.round(occBeds/totalBeds*100):0;
-    const dotColor=pct>70?'#2ecc71':pct>40?'#f0932b':'#e74c3c';
-    return`<div class="villa-item ${v.id===selectedId?'active':''}" onclick="selectVilla(${v.id})">
-      <div class="villa-dot" style="background:${dotColor}"></div>
-      <span class="villa-name">${v.name}</span>
-      <span class="villa-badge">${occBeds}/${totalBeds}</span>
-      ${v.lat&&v.lng?`<div class="villa-map-btn" onclick="event.stopPropagation();openMap(${v.id})" title="View on Google Maps">📍</div>`:''}
-      <div class="villa-edit" onclick="event.stopPropagation();openEditVilla(${v.id})" title="Edit villa">✏️</div>
-      <div class="villa-delete" onclick="event.stopPropagation();deleteVilla(${v.id})" title="Delete villa">🗑</div>
+  // Group villas by region
+  const groups={}; // region → villas[]
+  const ungrouped=[];
+  villas.forEach(v=>{
+    const r=(v.region||'').trim();
+    if(r){ if(!groups[r]) groups[r]=[]; groups[r].push(v); }
+    else ungrouped.push(v);
+  });
+  let html='';
+  // Ungrouped villas first (no header)
+  if(ungrouped.length) html+=ungrouped.map(_villaCard).join('');
+  // Grouped by region
+  Object.keys(groups).sort().forEach(region=>{
+    const collapsed=_collapsedRegions.has(region);
+    const count=groups[region].length;
+    html+=`<div class="region-header" onclick="toggleRegion('${region.replace(/'/g,"\\'")}')">
+      <span class="region-name">📂 ${region}</span>
+      <span class="region-toggle">${count} villa${count>1?'s':''} ${collapsed?'▶':'▼'}</span>
     </div>`;
-  }).join('');
+    if(!collapsed) html+=`<div class="region-villas">${groups[region].map(_villaCard).join('')}</div>`;
+  });
+  document.getElementById('villa-list').innerHTML=html;
   const tV=villas.length,tR=villas.reduce((s,v)=>s+v.rooms.length,0),oR=villas.reduce((s,v)=>s+v.rooms.filter(r=>r.status==='Occupied').length,0),mR=villas.reduce((s,v)=>s+v.rooms.filter(r=>r.status==='Maintenance').length,0);
   document.getElementById('sidebar-stats').innerHTML=`<div style="display:flex;flex-direction:column;gap:8px;padding:0 4px">${[['Total Villas',tV,'#4f8ef7'],['Total Rooms',tR,'#1abc9c'],['Occupied',oR,'#2ecc71'],['Maintenance',mR,'#e74c3c']].map(([l,v,c])=>`<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px"><span style="color:var(--muted)">${l}</span><span style="color:${c};font-weight:700">${v}</span></div>`).join('')}</div>`;
 }
@@ -596,6 +642,8 @@ function openAddVilla(){
   document.getElementById('f-rent').value=750;
   document.getElementById('f-lat').value='';
   document.getElementById('f-lng').value='';
+  document.getElementById('f-region').value='';
+  _refreshRegionList();
   document.getElementById('modal').style.display='flex';
 }
 function openEditVilla(id){
@@ -610,6 +658,8 @@ function openEditVilla(id){
   document.getElementById('f-rent').value=v.rentPerBed;
   document.getElementById('f-lat').value=v.lat||'';
   document.getElementById('f-lng').value=v.lng||'';
+  document.getElementById('f-region').value=v.region||'';
+  _refreshRegionList();
   document.getElementById('modal').style.display='flex';
 }
 function closeModal(){document.getElementById('modal').style.display='none';editingVillaId=null;}
@@ -621,13 +671,14 @@ async function saveVilla(){
   const rentPerBed=parseInt(document.getElementById('f-rent').value)||750;
   const lat=parseFloat(document.getElementById('f-lat').value)||null;
   const lng=parseFloat(document.getElementById('f-lng').value)||null;
+  const region=document.getElementById('f-region').value.trim()||'';
   if(editingVillaId!==null){
     // Edit existing — update name and config; rebuild rooms only if structure changed
     const v=villas.find(x=>x.id===editingVillaId);
     if(!v){closeModal();return;}
     const structureChanged=v.floors!==floors||v.roomsPerFloor!==roomsPerFloor||v.bedsPerRoom!==bedsPerRoom;
     v.name=name;v.floors=floors;v.roomsPerFloor=roomsPerFloor;v.bedsPerRoom=bedsPerRoom;v.rentPerBed=rentPerBed;
-    v.lat=lat;v.lng=lng;
+    v.lat=lat;v.lng=lng;v.region=region;
     if(structureChanged){
       v.rooms=[];
       for(let f=1;f<=floors;f++){for(let r=1;r<=roomsPerFloor;r++){
@@ -649,7 +700,7 @@ async function saveVilla(){
       rooms.push({id:`${id}-F${f}R${r}`,floor:f,num:r,type:randOf(ROOM_TYPES),status:occBeds>0?'Occupied':'Vacant',beds,bedsPerRoom,rentPerBed});
     }}
     const maintenanceItems=[{title:'Initial Inspection',priority:'Low',status:'Pending',room:'F1R1'}];
-    const newVilla={id,name,floors,roomsPerFloor,bedsPerRoom,rentPerBed,rooms,maintenanceItems,lat,lng};
+    const newVilla={id,name,floors,roomsPerFloor,bedsPerRoom,rentPerBed,rooms,maintenanceItems,lat,lng,region};
     villas.push(newVilla);selectedId=id;
     await dbSaveVilla(newVilla);showToast(`${name} added`);
     closeModal();renderSidebar();renderStats();renderTabContent();draw3D();
