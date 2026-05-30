@@ -89,10 +89,8 @@
   .add-btn:hover{background:rgba(79,142,247,.25)}
   .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;display:flex;align-items:center;justify-content:center}
   .modal{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:24px;width:400px;max-width:90vw}
-  .bed-popup{position:fixed;z-index:150;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;width:240px;box-shadow:0 8px 32px rgba(0,0,0,.5)}
-  .bed-popup-title{font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between}
-  .bed-popup-close{cursor:pointer;color:var(--muted);font-size:16px;line-height:1}
-  .bed-popup-close:hover{color:var(--text)}
+  .bed-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;display:flex;align-items:center;justify-content:center}
+  .bed-modal{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:24px;width:340px;max-width:90vw;box-shadow:0 16px 48px rgba(0,0,0,.6)}
   .toggle-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;font-size:12px;color:var(--muted)}
   .toggle-switch{position:relative;width:36px;height:20px;cursor:pointer}
   .toggle-switch input{opacity:0;width:0;height:0}
@@ -201,6 +199,37 @@
     <div class="btn-row">
       <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
       <button class="btn btn-primary" id="modal-save-btn" onclick="saveVilla()">Save Villa</button>
+    </div>
+  </div>
+</div>
+
+<!-- Bed Edit Modal -->
+<div class="bed-modal-overlay" id="bed-modal" style="display:none">
+  <div class="bed-modal">
+    <h3 id="bed-modal-title" style="margin-bottom:16px;font-size:15px">Edit Bed</h3>
+    <div class="toggle-row">
+      <span>Occupied</span>
+      <label class="toggle-switch">
+        <input type="checkbox" id="bm-occ">
+        <div class="toggle-track"></div>
+        <div class="toggle-knob"></div>
+      </label>
+    </div>
+    <div class="form-group" id="bm-name-group">
+      <label class="form-label">Tenant Name</label>
+      <input class="form-input" id="bm-name" placeholder="Tenant name"/>
+    </div>
+    <div class="toggle-row" id="bm-paid-row">
+      <span>Rent Paid</span>
+      <label class="toggle-switch">
+        <input type="checkbox" id="bm-paid">
+        <div class="toggle-track"></div>
+        <div class="toggle-knob"></div>
+      </label>
+    </div>
+    <div class="btn-row" style="margin-top:16px">
+      <button class="btn btn-secondary" onclick="closeBedModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveBedModal()">Save</button>
     </div>
   </div>
 </div>
@@ -586,79 +615,55 @@ async function deleteVilla(id){
   else{document.getElementById('stats-grid').innerHTML='';document.getElementById('tab-content').innerHTML='';}
 }
 
-function closeBedPopup(){const p=document.getElementById('bed-popup');if(p)p.remove();}
+let _bedModalCtx={};
+
+function closeBedModal(){
+  document.getElementById('bed-modal').style.display='none';
+  _bedModalCtx={};
+}
 
 function openBedPopup(evt,villaId,roomId,bedId){
   evt.stopPropagation();
-  closeBedPopup();
   const v=villas.find(x=>String(x.id)===String(villaId));
   const room=v?.rooms.find(r=>r.id===roomId);
   const bed=room?.beds.find(b=>b.id===bedId);
   if(!bed) return;
-
-  const pop=document.createElement('div');
-  pop.id='bed-popup';pop.className='bed-popup';
-  pop.innerHTML=`
-    <div class="bed-popup-title">
-      <span>✏️ Edit Bed ${bed.id}</span>
-      <span class="bed-popup-close" onclick="closeBedPopup()">×</span>
-    </div>
-    <div class="toggle-row">
-      <span>Occupied</span>
-      <label class="toggle-switch">
-        <input type="checkbox" id="bp-occ" ${bed.occupied?'checked':''}>
-        <div class="toggle-track"></div>
-        <div class="toggle-knob"></div>
-      </label>
-    </div>
-    <div class="form-group" id="bp-name-group" style="${bed.occupied?'':'display:none'}">
-      <label class="form-label">Tenant Name</label>
-      <input class="form-input" id="bp-name" value="${bed.occupied?bed.tenant:''}" placeholder="Tenant name"/>
-    </div>
-    <div class="toggle-row" id="bp-paid-row" style="${bed.occupied?'':'display:none'}">
-      <span>Rent Paid</span>
-      <label class="toggle-switch">
-        <input type="checkbox" id="bp-paid" ${bed.paid?'checked':''}>
-        <div class="toggle-track"></div>
-        <div class="toggle-knob"></div>
-      </label>
-    </div>
-    <div class="btn-row" style="margin-top:14px">
-      <button class="btn btn-secondary" onclick="closeBedPopup()">Cancel</button>
-      <button class="btn btn-primary" onclick="saveBedPopup('${villaId}','${roomId}',${bedId})">Save</button>
-    </div>`;
-  document.body.appendChild(pop);
-
-  // toggle name/paid fields when occupied changes
-  pop.querySelector('#bp-occ').addEventListener('change',e=>{
-    const show=e.target.checked;
-    pop.querySelector('#bp-name-group').style.display=show?'':'none';
-    pop.querySelector('#bp-paid-row').style.display=show?'':'none';
-  });
-
-  // position near click
-  const x=Math.min(evt.clientX+10,window.innerWidth-260);
-  const y=Math.min(evt.clientY+10,window.innerHeight-320);
-  pop.style.left=x+'px';pop.style.top=y+'px';
-
-  // close on outside click
-  setTimeout(()=>document.addEventListener('click',function h(e){if(!pop.contains(e.target)){closeBedPopup();document.removeEventListener('click',h);}}),0);
+  _bedModalCtx={villaId,roomId,bedId};
+  document.getElementById('bed-modal-title').textContent=`Edit Bed ${bed.id} — F${room.floor} ${room.type} ${room.num}`;
+  const occEl=document.getElementById('bm-occ');
+  const nameEl=document.getElementById('bm-name');
+  const paidEl=document.getElementById('bm-paid');
+  occEl.checked=bed.occupied;
+  nameEl.value=bed.occupied&&bed.tenant!=='—'?bed.tenant:'';
+  paidEl.checked=!!bed.paid;
+  const showTenant=bed.occupied;
+  document.getElementById('bm-name-group').style.display=showTenant?'':'none';
+  document.getElementById('bm-paid-row').style.display=showTenant?'':'none';
+  occEl.onchange=e=>{
+    const s=e.target.checked;
+    document.getElementById('bm-name-group').style.display=s?'':'none';
+    document.getElementById('bm-paid-row').style.display=s?'':'none';
+  };
+  document.getElementById('bed-modal').style.display='flex';
+  nameEl.focus();
 }
 
-async function saveBedPopup(villaId,roomId,bedId){
+async function saveBedModal(){
+  const{villaId,roomId,bedId}=_bedModalCtx;
+  if(!villaId) return;
   const v=villas.find(x=>String(x.id)===String(villaId));
   const room=v?.rooms.find(r=>r.id===roomId);
   const bed=room?.beds.find(b=>b.id===bedId);
   if(!bed) return;
-  const occupied=document.getElementById('bp-occ').checked;
-  const name=document.getElementById('bp-name')?.value.trim()||'—';
-  const paid=document.getElementById('bp-paid')?.checked||false;
+  const occupied=document.getElementById('bm-occ').checked;
+  const name=document.getElementById('bm-name').value.trim()||'—';
+  const paid=document.getElementById('bm-paid').checked;
   bed.occupied=occupied;
   bed.tenant=occupied?name:'—';
   bed.paid=occupied?paid:false;
   const occBeds=room.beds.filter(b=>b.occupied).length;
   room.status=occBeds===room.bedsPerRoom?'Occupied':occBeds===0?'Vacant':'Occupied';
-  closeBedPopup();
+  closeBedModal();
   await dbSaveVilla(v);
   showToast('Bed updated');
   renderStats();renderTabContent();draw3D();
