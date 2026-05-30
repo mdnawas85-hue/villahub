@@ -490,8 +490,8 @@ function renderStats(){
 }
 function bedSpaceGrid(room){
   return room.beds.map((b,i)=>{
-    const color=b.occupied?'var(--green)':'var(--border)';
-    const bg=b.occupied?'rgba(46,204,113,0.12)':'rgba(42,50,72,0.5)';
+    const color=b.occupied?'var(--green)':'var(--accent)';
+    const bg=b.occupied?'rgba(46,204,113,0.12)':'rgba(79,142,247,0.10)';
     const vid=getSelectedVilla().id,rid=room.id,bid=b.id;
     return`<div class="bed-card" style="border:1px solid ${color};background:${bg};border-radius:6px;padding:5px 8px;display:flex;align-items:center;gap:6px;min-width:0" onclick="openBedPopup(event,'${vid}','${rid}',${bid})">
       <div style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></div>
