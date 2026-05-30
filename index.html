@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>VillaHub — Villa Maintenance Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  .loading-overlay{position:fixed;inset:0;background:var(--bg);z-index:999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px}
+  .loading-spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .loading-text{font-size:13px;color:var(--muted)}
+  .toast{position:fixed;bottom:20px;right:20px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:10px 16px;font-size:12px;color:var(--text);z-index:200;display:flex;align-items:center;gap:8px;box-shadow:0 4px 20px rgba(0,0,0,.4);transition:opacity .3s}
+  .toast.error{border-color:var(--red);color:var(--red)}
+</style>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#0f1117;--bg2:#161b27;--bg3:#1e2535;--card:#1e2535;
+    --border:#2a3248;--accent:#4f8ef7;--accent2:#7c5cbf;
+    --green:#2ecc71;--amber:#f0932b;--red:#e74c3c;--teal:#1abc9c;
+    --text:#e8eaf0;--muted:#8892a4;--radius:12px;
+    font-family:'Segoe UI',system-ui,sans-serif;
+  }
+  body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+  h1,h2,h3{font-weight:600;letter-spacing:-0.3px}
+  .app{display:grid;grid-template-rows:56px 1fr;min-height:100vh}
+  .topbar{background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:16px}
+  .logo{font-size:18px;font-weight:700;color:var(--accent);letter-spacing:-0.5px}
+  .logo span{color:var(--text)}
+  .main{display:grid;grid-template-columns:240px 1fr;height:calc(100vh - 56px);overflow:hidden}
+  .sidebar{background:var(--bg2);border-right:1px solid var(--border);overflow-y:auto;padding:16px 12px}
+  .content{overflow-y:auto;padding:20px}
+  .sidebar-section{margin-bottom:20px}
+  .sidebar-label{font-size:11px;font-weight:600;color:var(--muted);letter-spacing:1px;text-transform:uppercase;padding:0 8px;margin-bottom:8px}
+  .villa-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;transition:all .15s;border:1px solid transparent;position:relative}
+  .villa-item:hover{background:var(--bg3);border-color:var(--border)}
+  .villa-item.active{background:rgba(79,142,247,.1);border-color:rgba(79,142,247,.3);color:var(--accent)}
+  .villa-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+  .villa-name{font-size:13px;font-weight:500;flex:1}
+  .villa-badge{font-size:10px;padding:2px 6px;border-radius:10px;background:var(--bg3);color:var(--muted)}
+  .villa-edit{display:none;align-items:center;justify-content:center;width:22px;height:22px;border-radius:5px;background:rgba(79,142,247,.15);border:1px solid rgba(79,142,247,.3);color:var(--accent);font-size:11px;flex-shrink:0;cursor:pointer;transition:all .15s}
+  .villa-edit:hover{background:rgba(79,142,247,.3)}
+  .villa-delete{display:none;align-items:center;justify-content:center;width:22px;height:22px;border-radius:5px;background:rgba(231,76,60,.12);border:1px solid rgba(231,76,60,.3);color:var(--red);font-size:11px;flex-shrink:0;cursor:pointer;transition:all .15s}
+  .villa-delete:hover{background:rgba(231,76,60,.28)}
+  .villa-item:hover .villa-edit,.villa-item:hover .villa-delete{display:flex}
+  .bed-edit-input{background:transparent;border:none;border-bottom:1px solid var(--accent);color:var(--text);font-size:11px;width:80px;outline:none;padding:1px 2px}
+  .bed-name-label{cursor:pointer;font-size:11px;color:var(--text)}
+  .bed-name-label:hover{text-decoration:underline dotted var(--muted)}
+  .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+  .stat-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
+  .stat-label{font-size:11px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
+  .stat-value{font-size:28px;font-weight:700}
+  .stat-sub{font-size:12px;color:var(--muted);margin-top:4px}
+  .c-blue{color:var(--accent)}.c-green{color:var(--green)}.c-amber{color:var(--amber)}.c-red{color:var(--red)}
+  .scene-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:20px}
+  .scene-header{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+  .scene-title{font-size:14px;font-weight:600}
+  .scene-canvas{position:relative;height:480px}
+  canvas#villa3d{width:100%;height:100%}
+  .panels{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .panel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+  .panel-header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+  .panel-title{font-size:13px;font-weight:600}
+  .panel-body{padding:12px 16px}
+  .room-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)}
+  .room-row:last-child{border-bottom:none}
+  .room-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+  .room-info{flex:1;min-width:0}
+  .room-name{font-size:13px;font-weight:500}
+  .room-meta{font-size:11px;color:var(--muted);margin-top:2px}
+  .badge{display:inline-flex;align-items:center;font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px;letter-spacing:.3px}
+  .badge-green{background:rgba(46,204,113,.15);color:var(--green)}
+  .badge-amber{background:rgba(240,147,43,.15);color:var(--amber)}
+  .badge-red{background:rgba(231,76,60,.15);color:var(--red)}
+  .badge-blue{background:rgba(79,142,247,.15);color:var(--accent)}
+  .maint-item{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)}
+  .maint-item:last-child{border-bottom:none}
+  .maint-icon{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;margin-top:2px}
+  .maint-text{flex:1}
+  .maint-title{font-size:12px;font-weight:500}
+  .maint-meta{font-size:11px;color:var(--muted);margin-top:2px}
+  .prog-bar{height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;margin-top:6px}
+  .prog-fill{height:100%;border-radius:3px;transition:width .5s}
+  .tabs{display:flex;gap:4px;padding:0 16px 0;border-bottom:1px solid var(--border)}
+  .tab{padding:10px 14px;font-size:12px;font-weight:500;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;margin-bottom:-1px}
+  .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+  .add-btn{padding:6px 12px;background:rgba(79,142,247,.15);color:var(--accent);border:1px solid rgba(79,142,247,.3);border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s}
+  .add-btn:hover{background:rgba(79,142,247,.25)}
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;display:flex;align-items:center;justify-content:center}
+  .modal{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:24px;width:400px;max-width:90vw}
+  .modal h3{font-size:16px;margin-bottom:16px}
+  .form-group{margin-bottom:14px}
+  .form-label{font-size:12px;color:var(--muted);margin-bottom:6px;display:block}
+  .form-input{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px;outline:none}
+  .form-input:focus{border-color:var(--accent)}
+  .form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .btn-row{display:flex;gap:10px;margin-top:20px;justify-content:flex-end}
+  .btn{padding:8px 20px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all .15s}
+  .btn-primary{background:var(--accent);color:#fff}
+  .btn-secondary{background:var(--bg3);color:var(--muted);border:1px solid var(--border)}
+  .rent-row{display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px}
+  .rent-row:last-child{border-bottom:none}
+  ::-webkit-scrollbar{width:4px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+  .chip{display:inline-flex;align-items:center;gap:4px;font-size:10px;padding:2px 8px;border-radius:10px;border:1px solid var(--border);color:var(--muted);background:var(--bg3)}
+  select.form-input option{background:var(--bg2)}
+</style>
+</head>
+<body>
+<div class="loading-overlay" id="loading-overlay">
+  <div class="loading-spinner"></div>
+  <div class="loading-text">Connecting to Supabase...</div>
+</div>
+<div id="toast-container"></div>
+<div class="app">
+  <div class="topbar">
+    <div class="logo">Villa<span>Hub</span></div>
+    <div style="flex:1"></div>
+    <div style="font-size:12px;color:var(--muted)" id="topbar-info">Loading...</div>
+  </div>
+  <div class="main">
+    <div class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-label">Properties</div>
+        <div id="villa-list"></div>
+        <div style="padding:8px 10px;margin-top:6px">
+          <button class="add-btn" style="width:100%" onclick="openAddVilla()">+ Add Villa</button>
+        </div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-label">Quick Stats</div>
+        <div id="sidebar-stats"></div>
+      </div>
+    </div>
+    <div class="content">
+      <div class="stats-grid" id="stats-grid"></div>
+      <div class="scene-card">
+        <div class="scene-header">
+          <span class="scene-title" id="scene-title">3D Villa View</span>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span style="font-size:11px;color:var(--muted)">Drag to rotate</span>
+            <div class="chip" id="floor-indicator">Floors: 2</div>
+          </div>
+        </div>
+        <div class="scene-canvas">
+          <canvas id="villa3d"></canvas>
+        </div>
+      </div>
+      <div class="tabs" id="detail-tabs">
+        <div class="tab active" onclick="setTab('rooms',event)">Rooms</div>
+        <div class="tab" onclick="setTab('maintenance',event)">Maintenance</div>
+        <div class="tab" onclick="setTab('rent',event)">Rent</div>
+      </div>
+      <div id="tab-content" style="margin-top:12px"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal" style="display:none">
+  <div class="modal">
+    <h3 id="modal-title">Add New Villa</h3>
+    <div class="form-group">
+      <label class="form-label">Villa Name</label>
+      <input class="form-input" id="f-name" placeholder="e.g. Villa Al-Noor" />
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Number of Floors</label>
+        <input class="form-input" id="f-floors" type="number" min="1" max="5" value="2"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Rooms per Floor</label>
+        <input class="form-input" id="f-rooms" type="number" min="1" max="10" value="4"/>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Bed Spaces / Room</label>
+        <input class="form-input" id="f-beds" type="number" min="1" max="12" value="4"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Rent / Bed Space (SAR)</label>
+        <input class="form-input" id="f-rent" type="number" min="0" value="750"/>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="modal-save-btn" onclick="saveVilla()">Save Villa</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const STATUS_COLORS={Occupied:'green',Vacant:'blue',Maintenance:'red',Reserved:'amber'};
+const ROOM_TYPES=['Bedroom','Living','Kitchen','Bathroom','Office','Storage'];
+const BED_NAMES=['Ali','Omar','Saad','Nour','Rami','Faris','Ziad','Khaled','Hassan','Yusuf','Ahmad','Majed'];
+function randInt(a,b){return Math.floor(Math.random()*(b-a+1))+a;}
+function randOf(arr){return arr[randInt(0,arr.length-1)];}
+function randStatus(){const r=Math.random();if(r<.55)return'Occupied';if(r<.75)return'Vacant';if(r<.88)return'Reserved';return'Maintenance';}
+function makeBeds(count,rentPerBed){
+  return Array.from({length:count},(_,i)=>{
+    const occ=Math.random()>.45;
+    return{id:i+1,occupied:occ,tenant:occ?`${randOf(BED_NAMES)} ${String.fromCharCode(65+(Math.random()*25)|0)}.`:'—',rent:rentPerBed,paid:occ?Math.random()>.3:false};
+  });
+}
+function generateVilla(id,name){
+  const floors=randInt(1,3),roomsPerFloor=randInt(3,6),bedsPerRoom=randInt(2,6),rentPerBed=randInt(400,1200);
+  const rooms=[];
+  for(let f=1;f<=floors;f++){for(let r=1;r<=roomsPerFloor;r++){
+    const beds=makeBeds(bedsPerRoom,rentPerBed);
+    const occBeds=beds.filter(b=>b.occupied).length;
+    const st=occBeds===bedsPerRoom?'Occupied':occBeds===0?'Vacant':'Occupied';
+    rooms.push({id:`${id}-F${f}R${r}`,floor:f,num:r,type:randOf(ROOM_TYPES),status:st,beds,bedsPerRoom,rentPerBed});
+  }}
+  const maintenanceItems=[
+    {title:'AC Filter Replacement',priority:'Medium',status:'Pending',room:`F${randInt(1,floors)}R${randInt(1,roomsPerFloor)}`},
+    {title:'Bathroom Leak Fix',priority:'High',status:'In Progress',room:`F${randInt(1,floors)}R${randInt(1,roomsPerFloor)}`},
+    {title:'Door Lock Service',priority:'Low',status:'Done',room:'F1R1'},
+    {title:'Paint Touch-up',priority:'Low',status:'Pending',room:`F${randInt(1,floors)}R${randInt(1,roomsPerFloor)}`},
+  ];
+  return{id,name,floors,roomsPerFloor,bedsPerRoom,rentPerBed,rooms,maintenanceItems};
+}
+const NAMES=['Villa Al-Noor','Villa Salam','Villa Raha','Villa Rawdah','Villa Zahrah','Villa Majd','Villa Fajr','Villa Thuraya','Villa Rayyan','Villa Safa','Villa Andalus','Villa Bader','Villa Cordoba','Villa Doha','Villa Ehsas','Villa Fadaa','Villa Ghaith','Villa Hana','Villa Iman','Villa Jawhara','Villa Kawthar','Villa Laila','Villa Maha','Villa Nada','Villa Omran','Villa Petra','Villa Qamar'];
+
+// ── Supabase ─────────────────────────────────────────────────────────────────
+const SB_URL='https://ffzwcrogkxpkpxlhibvh.supabase.co';
+const SB_KEY='sb_publishable_xC4GspWUmbrtl6F_a7XJPw_FMB4QBzK';
+const sb=supabase.createClient(SB_URL,SB_KEY);
+
+function showToast(msg,isError=false){
+  const t=document.createElement('div');
+  t.className='toast'+(isError?' error':'');
+  t.innerHTML=`<span>${isError?'⚠️':'✓'}</span><span>${msg}</span>`;
+  document.getElementById('toast-container').appendChild(t);
+  setTimeout(()=>{t.style.opacity='0';setTimeout(()=>t.remove(),300)},2800);
+}
+
+async function dbSaveVilla(villa){
+  const {error}=await sb.from('villas').upsert({id:villa.id,data:villa,updated_at:new Date().toISOString()},{onConflict:'id'});
+  if(error){showToast('Save failed: '+error.message,true);throw error;}
+}
+async function dbDeleteVilla(id){
+  const {error}=await sb.from('villas').delete().eq('id',id);
+  if(error) showToast('Delete failed: '+error.message,true);
+}
+async function dbLoadVillas(){
+  const {data,error}=await sb.from('villas').select('data').order('created_at',{ascending:true});
+  if(error) throw error;
+  return data.map(r=>r.data);
+}
+
+let villas=[],selectedId=null,activeTab='rooms';
+const canvas=document.getElementById('villa3d'),ctx=canvas.getContext('2d');
+let rot={x:.35,y:.55},dragging=false,lastMouse={x:0,y:0};
+canvas.addEventListener('mousedown',e=>{dragging=true;lastMouse={x:e.clientX,y:e.clientY}});
+canvas.addEventListener('mousemove',e=>{if(!dragging)return;rot.y+=(e.clientX-lastMouse.x)*0.01;rot.x+=(e.clientY-lastMouse.y)*0.005;rot.x=Math.max(0.1,Math.min(0.7,rot.x));lastMouse={x:e.clientX,y:e.clientY};draw3D();});
+canvas.addEventListener('mouseup',()=>dragging=false);
+canvas.addEventListener('mouseleave',()=>dragging=false);
+canvas.addEventListener('touchstart',e=>{dragging=true;lastMouse={x:e.touches[0].clientX,y:e.touches[0].clientY};},{passive:true});
+canvas.addEventListener('touchmove',e=>{if(!dragging)return;rot.y+=(e.touches[0].clientX-lastMouse.x)*0.01;rot.x+=(e.touches[0].clientY-lastMouse.y)*0.005;rot.x=Math.max(0.1,Math.min(0.7,rot.x));lastMouse={x:e.touches[0].clientX,y:e.touches[0].clientY};draw3D();},{passive:true});
+canvas.addEventListener('touchend',()=>dragging=false);
+function resizeCanvas(){
+  const rect=canvas.parentElement.getBoundingClientRect();
+  canvas.width=rect.width*devicePixelRatio;
+  canvas.height=rect.height*devicePixelRatio;
+  ctx.scale(devicePixelRatio,devicePixelRatio);
+  draw3D();
+}
+function project3D(x,y,z,cx,cy,scale){
+  const cosX=Math.cos(rot.x),sinX=Math.sin(rot.x),cosY=Math.cos(rot.y),sinY=Math.sin(rot.y);
+  const ry=y*cosX-z*sinX,rz=y*sinX+z*cosX;
+  const rx2=x*cosY+rz*sinY,ry2=ry,rz2=-x*sinY+rz*cosY;
+  const fov=900,d=fov/(fov+rz2);
+  return{x:cx+rx2*d*scale,y:cy-ry2*d*scale,z:rz2};
+}
+function shadeColor(hex,f){
+  const r=Math.min(255,parseInt(hex.slice(1,3),16)*f|0);
+  const g=Math.min(255,parseInt(hex.slice(3,5),16)*f|0);
+  const b=Math.min(255,parseInt(hex.slice(5,7),16)*f|0);
+  return`rgb(${r},${g},${b})`;
+}
+function hexToRgba(hex,a){
+  const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+  return`rgba(${r},${g},${b},${a})`;
+}
+function drawBox3D(x,y,z,w,h,d,color,cx,cy,scale,alpha){
+  const pts=[[x,y,z],[x+w,y,z],[x+w,y+h,z],[x,y+h,z],[x,y,z+d],[x+w,y,z+d],[x+w,y+h,z+d],[x,y+h,z+d]];
+  const p=pts.map(pt=>project3D(pt[0],pt[1],pt[2],cx,cy,scale));
+  const faces=[
+    {idx:[3,2,1,0],s:1.0},  // front
+    {idx:[4,5,6,7],s:0.55}, // back
+    {idx:[4,0,1,5],s:0.65}, // bottom
+    {idx:[7,6,2,3],s:0.95}, // top
+    {idx:[5,1,2,6],s:0.80}, // right
+    {idx:[0,4,7,3],s:0.70}, // left
+  ];
+  const avgZ=arr=>arr.reduce((s,i)=>s+p[i].z,0)/arr.length;
+  faces.map(f=>({...f,az:avgZ(f.idx)})).sort((a,b)=>b.az-a.az).forEach(face=>{
+    const pp=face.idx.map(i=>p[i]);
+    ctx.beginPath();ctx.moveTo(pp[0].x,pp[0].y);
+    for(let i=1;i<pp.length;i++)ctx.lineTo(pp[i].x,pp[i].y);
+    ctx.closePath();
+    ctx.globalAlpha=alpha||1;
+    ctx.fillStyle=shadeColor(color,face.s);ctx.fill();
+    ctx.strokeStyle='rgba(0,0,0,0.25)';ctx.lineWidth=0.8;ctx.stroke();
+    ctx.globalAlpha=1;
+  });
+}
+function draw3D(){
+  const v=getSelectedVilla();
+  if(!v) return;
+  const W=canvas.width/devicePixelRatio,H=canvas.height/devicePixelRatio;
+  ctx.clearRect(0,0,W,H);
+
+  // Adaptive scale — fill as much canvas as possible
+  const floors=v.floors,rX=v.roomsPerFloor;
+  const BW=rX*0.9,D=2.2,FH=1.3;
+  const totalH=floors*FH;
+
+  // ── Two-pass fit: project at scale=1, measure bbox, derive scale+offset ─
+  const PAD_TOP=40,PAD_BOT=80,PAD_H=40; // px padding inside canvas
+  function allCorners(cx0,cy0,sc){
+    const pts=[];
+    const addBox=(x,y,z,w,h,d)=>{
+      for(const [px,py,pz] of [[x,y,z],[x+w,y,z],[x+w,y+h,z],[x,y+h,z],
+                                [x,y,z+d],[x+w,y,z+d],[x+w,y+h,z+d],[x,y+h,z+d]]){
+        const p=project3D(px,py,pz,cx0,cy0,sc);pts.push(p);
+      }
+    };
+    addBox(-BW/2,-0.15,-D/2,BW,totalH+0.44,D); // full building envelope
+    return pts;
+  }
+  const testPts=allCorners(0,0,1);
+  const xs=testPts.map(p=>p.x),ys=testPts.map(p=>p.y);
+  const bx0=Math.min(...xs),bx1=Math.max(...xs),by0=Math.min(...ys),by1=Math.max(...ys);
+  const bw=bx1-bx0,bh=by1-by0;
+  const scaleX=(W-PAD_H*2)/bw, scaleY=(H-PAD_TOP-PAD_BOT)/bh;
+  const scale=Math.min(scaleX,scaleY)*0.88;
+  // Center: map bbox center → canvas center (with legend space at bottom)
+  const bcx=(bx0+bx1)/2, bcy=(by0+by1)/2;
+  const cx=W/2-bcx*scale, cy=(PAD_TOP+(H-PAD_BOT-PAD_TOP)/2)-bcy*scale;
+
+  // ── Grid floor ──────────────────────────────────────────────────────────
+  const GS=1.2,GN=7;
+  ctx.globalAlpha=0.18;
+  for(let i=-GN;i<=GN;i++){
+    const a=project3D(i*GS,-0.01,-GN*GS,cx,cy,scale);
+    const b=project3D(i*GS,-0.01, GN*GS,cx,cy,scale);
+    const c=project3D(-GN*GS,-0.01,i*GS,cx,cy,scale);
+    const d2=project3D( GN*GS,-0.01,i*GS,cx,cy,scale);
+    ctx.strokeStyle='#4f8ef7';ctx.lineWidth=0.7;
+    ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(c.x,c.y);ctx.lineTo(d2.x,d2.y);ctx.stroke();
+  }
+  ctx.globalAlpha=1;
+
+  // ── Ground shadow ellipse ─────────────────────────────────────────────
+  const shadowP=project3D(0,-0.02,0,cx,cy,scale);
+  ctx.save();ctx.globalAlpha=0.25;
+  ctx.beginPath();
+  ctx.ellipse(shadowP.x,shadowP.y+4,BW*scale*0.7,D*scale*0.22,0,0,Math.PI*2);
+  ctx.fillStyle='#000';ctx.fill();
+  ctx.restore();
+
+  // ── Ground slab ───────────────────────────────────────────────────────
+  drawBox3D(-BW/2,-0.15,-D/2,BW,0.15,D,'#1e2a3a',cx,cy,scale);
+
+  // ── Floors & rooms ───────────────────────────────────────────────────
+  const roomColors={Occupied:'#27ae60',Vacant:'#2980b9',Maintenance:'#c0392b',Reserved:'#d68910'};
+  for(let f=0;f<floors;f++){
+    const fy=f*FH;
+    const rW=BW/rX;
+    // floor separator slab
+    if(f>0) drawBox3D(-BW/2,fy-0.07,-D/2,BW,0.07,D,'#2a3248',cx,cy,scale);
+    for(let r=0;r<rX;r++){
+      const room=v.rooms[f*rX+r];
+      const fc=roomColors[room?room.status:'Vacant']||'#2980b9';
+      drawBox3D(-BW/2+r*rW,fy,-D/2,rW,FH,D,fc,cx,cy,scale);
+      // window cutout highlight
+      const wx=-BW/2+r*rW+rW*0.2,wy=fy+FH*0.35,wz=-D/2-0.01,ww=rW*0.6,wh=FH*0.3;
+      const wp=[project3D(wx,wy,wz,cx,cy,scale),project3D(wx+ww,wy,wz,cx,cy,scale),
+                project3D(wx+ww,wy+wh,wz,cx,cy,scale),project3D(wx,wy+wh,wz,cx,cy,scale)];
+      ctx.beginPath();ctx.moveTo(wp[0].x,wp[0].y);wp.forEach(p=>ctx.lineTo(p.x,p.y));ctx.closePath();
+      ctx.fillStyle='rgba(255,255,255,0.12)';ctx.fill();
+      ctx.strokeStyle='rgba(255,255,255,0.2)';ctx.lineWidth=0.5;ctx.stroke();
+    }
+    // Floor label
+    const lp=project3D(-BW/2-0.45,fy+FH/2,-D/2,cx,cy,scale);
+    ctx.fillStyle='rgba(136,146,164,0.9)';ctx.font=`bold ${Math.max(9,scale*0.18)}px sans-serif`;
+    ctx.textAlign='right';ctx.fillText(`F${f+1}`,lp.x,lp.y+4);ctx.textAlign='left';
+  }
+
+  // ── Rooftop parapet ──────────────────────────────────────────────────
+  drawBox3D(-BW/2,totalH,-D/2,BW,0.22,D,'#2a3248',cx,cy,scale);
+  // roof AC units
+  for(let i=0;i<Math.min(3,rX);i++){
+    const ax=-BW/2+i*(BW/3)+BW*0.08;
+    drawBox3D(ax,totalH+0.22,-D/2+0.3,BW*0.18,0.25,D*0.25,'#1e2535',cx,cy,scale);
+  }
+
+  // ── Legend ────────────────────────────────────────────────────────────
+  const leg=[['Occupied','#27ae60'],['Vacant','#2980b9'],['Reserved','#d68910'],['Maintenance','#c0392b']];
+  const lPad=16, lY=H-44, lBoxSize=10, lLineH=20;
+  leg.forEach(([l,c],i)=>{
+    const col=i%2, row=Math.floor(i/2);
+    const lx=lPad+col*130, ly=lY+row*lLineH;
+    ctx.fillStyle=c;
+    ctx.beginPath();ctx.roundRect(lx,ly,lBoxSize,lBoxSize,2);ctx.fill();
+    ctx.fillStyle='#8892a4';ctx.font='11px sans-serif';
+    ctx.fillText(l,lx+lBoxSize+6,ly+lBoxSize-1);
+  });
+}
+function getSelectedVilla(){return villas.find(v=>v.id===selectedId)||villas[0];}
+function renderSidebar(){
+  document.getElementById('villa-list').innerHTML=villas.map(v=>{
+    const allBeds=v.rooms.flatMap(r=>r.beds);
+    const occBeds=allBeds.filter(b=>b.occupied).length,totalBeds=allBeds.length;
+    const pct=totalBeds?Math.round(occBeds/totalBeds*100):0;
+    const dotColor=pct>70?'#2ecc71':pct>40?'#f0932b':'#e74c3c';
+    return`<div class="villa-item ${v.id===selectedId?'active':''}" onclick="selectVilla(${v.id})">
+      <div class="villa-dot" style="background:${dotColor}"></div>
+      <span class="villa-name">${v.name}</span>
+      <span class="villa-badge">${occBeds}/${totalBeds}</span>
+      <div class="villa-edit" onclick="event.stopPropagation();openEditVilla(${v.id})" title="Edit villa">✏️</div>
+      <div class="villa-delete" onclick="event.stopPropagation();deleteVilla(${v.id})" title="Delete villa">🗑</div>
+    </div>`;
+  }).join('');
+  const tV=villas.length,tR=villas.reduce((s,v)=>s+v.rooms.length,0),oR=villas.reduce((s,v)=>s+v.rooms.filter(r=>r.status==='Occupied').length,0),mR=villas.reduce((s,v)=>s+v.rooms.filter(r=>r.status==='Maintenance').length,0);
+  document.getElementById('sidebar-stats').innerHTML=`<div style="display:flex;flex-direction:column;gap:8px;padding:0 4px">${[['Total Villas',tV,'#4f8ef7'],['Total Rooms',tR,'#1abc9c'],['Occupied',oR,'#2ecc71'],['Maintenance',mR,'#e74c3c']].map(([l,v,c])=>`<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px"><span style="color:var(--muted)">${l}</span><span style="color:${c};font-weight:700">${v}</span></div>`).join('')}</div>`;
+}
+function renderStats(){
+  const v=getSelectedVilla();
+  const allBeds=v.rooms.flatMap(r=>r.beds);
+  const totalBeds=allBeds.length;
+  const occBeds=allBeds.filter(b=>b.occupied).length;
+  const totalRent=allBeds.filter(b=>b.occupied).reduce((s,b)=>s+b.rent,0);
+  const paidRent=allBeds.filter(b=>b.paid).reduce((s,b)=>s+b.rent,0);
+  document.getElementById('stats-grid').innerHTML=`
+    <div class="stat-card"><div class="stat-label">Total Rooms</div><div class="stat-value c-blue">${v.rooms.length}</div><div class="stat-sub">${v.floors} floors · ${v.roomsPerFloor}/floor</div></div>
+    <div class="stat-card"><div class="stat-label">Bed Spaces</div><div class="stat-value c-green">${occBeds}<span style="font-size:14px;color:var(--muted)">/${totalBeds}</span></div><div class="stat-sub">${Math.round(occBeds/totalBeds*100)}% occupied</div><div class="prog-bar" style="margin-top:10px"><div class="prog-fill" style="width:${occBeds/totalBeds*100}%;background:var(--green)"></div></div></div>
+    <div class="stat-card"><div class="stat-label">Beds/Room</div><div class="stat-value" style="color:#1abc9c">${v.bedsPerRoom}</div><div class="stat-sub">${v.rentPerBed.toLocaleString()} SAR/bed</div></div>
+    <div class="stat-card"><div class="stat-label">Monthly Rent</div><div class="stat-value c-amber">${totalRent.toLocaleString()}</div><div class="stat-sub">${paidRent.toLocaleString()} SAR collected</div><div class="prog-bar" style="margin-top:10px"><div class="prog-fill" style="width:${totalRent?paidRent/totalRent*100:0}%;background:var(--amber)"></div></div></div>`;
+  document.getElementById('scene-title').textContent=`${v.name} — 3D View`;
+  document.getElementById('floor-indicator').textContent=`Floors: ${v.floors}`;
+  document.getElementById('topbar-info').textContent=`${villas.length} villas · ${villas.reduce((s,v)=>s+v.rooms.length,0)} rooms · ${villas.reduce((s,v)=>s+v.rooms.flatMap(r=>r.beds).length,0)} beds`;
+}
+function bedSpaceGrid(room){
+  return room.beds.map((b,i)=>{
+    const color=b.occupied?'var(--green)':'var(--border)';
+    const bg=b.occupied?'rgba(46,204,113,0.12)':'rgba(42,50,72,0.5)';
+    const vid=getSelectedVilla().id,rid=room.id,bid=b.id;
+    return`<div style="border:1px solid ${color};background:${bg};border-radius:6px;padding:5px 8px;display:flex;align-items:center;gap:6px;min-width:0">
+      <div style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></div>
+      <div style="min-width:0;flex:1">
+        <div style="font-size:11px;font-weight:600;color:${b.occupied?'var(--text)':'var(--muted)'}">Bed ${b.id}</div>
+        <div style="font-size:10px;color:var(--muted)">
+          ${b.occupied
+            ? `<span class="bed-name-label" onclick="startEditBedName(this,'${vid}','${rid}',${bid})" title="Click to rename">${b.tenant}</span>`
+            : 'Vacant'}
+        </div>
+      </div>
+      ${b.occupied?`<span class="badge badge-${b.paid?'green':'red'}" style="margin-left:auto;flex-shrink:0">${b.paid?'Paid':'Due'}</span>`:''}
+    </div>`;
+  }).join('');
+}
+function renderTabContent(){
+  const v=getSelectedVilla(),el=document.getElementById('tab-content');
+  if(activeTab==='rooms'){
+    const icons={Bedroom:'🛏',Living:'🛋',Kitchen:'🍳',Bathroom:'🚿',Office:'💼',Storage:'📦'};
+    el.innerHTML=`<div style="display:flex;flex-direction:column;gap:12px">${v.rooms.map(room=>{
+      const occBeds=room.beds.filter(b=>b.occupied).length;
+      const sc=occBeds===room.bedsPerRoom?'green':occBeds===0?'blue':'amber';
+      const label=occBeds===room.bedsPerRoom?'Full':occBeds===0?'Vacant':`${occBeds}/${room.bedsPerRoom} Beds`;
+      return`<div class="panel"><div class="panel-header">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="room-icon" style="background:rgba(79,142,247,.1)">${icons[room.type]||'🏠'}</div>
+          <div><div class="room-name">F${room.floor} · Room ${room.num} · ${room.type}</div>
+          <div class="room-meta">${room.bedsPerRoom} bed spaces · ${room.rentPerBed.toLocaleString()} SAR/bed</div></div>
+        </div>
+        <span class="badge badge-${sc}">${label}</span>
+      </div>
+      <div style="padding:10px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:6px">
+        ${bedSpaceGrid(room)}
+      </div></div>`;
+    }).join('')}</div>`;
+  }else if(activeTab==='maintenance'){
+    const pColor={High:'red',Medium:'amber',Low:'blue'},sColor={Pending:'amber','In Progress':'blue',Done:'green'};
+    el.innerHTML=`<div class="panel"><div class="panel-header"><span class="panel-title">Maintenance Tasks</span><button class="add-btn" onclick="addMaintItem()">+ Add Task</button></div><div class="panel-body">${v.maintenanceItems.map(m=>`<div class="maint-item"><div class="maint-icon" style="background:rgba(79,142,247,.1)">🔧</div><div class="maint-text"><div class="maint-title">${m.title}</div><div class="maint-meta">Room ${m.room} · Priority: <span style="color:var(--${pColor[m.priority]||'blue'})">${m.priority}</span></div></div><span class="badge badge-${sColor[m.status]||'blue'}">${m.status}</span></div>`).join('')}</div></div>`;
+  }else if(activeTab==='rent'){
+    const allBeds=v.rooms.flatMap(r=>r.beds.filter(b=>b.occupied).map(b=>({...b,room:`F${r.floor}R${r.num}`})));
+    const totalExp=allBeds.reduce((s,b)=>s+b.rent,0),totalColl=allBeds.filter(b=>b.paid).reduce((s,b)=>s+b.rent,0);
+    el.innerHTML=`<div class="panel"><div class="panel-header"><span class="panel-title">Bed Space Rent Collection</span><span class="chip">${allBeds.filter(b=>b.paid).length}/${allBeds.length} paid</span></div><div class="panel-body">
+      ${allBeds.length===0?'<div style="color:var(--muted);font-size:13px">No occupied beds</div>':allBeds.map(b=>`<div class="rent-row"><span>Bed ${b.id} · ${b.tenant} · ${b.room}</span><span style="color:var(--muted)">${b.rent.toLocaleString()} SAR</span><span class="badge badge-${b.paid?'green':'red'}">${b.paid?'Paid':'Unpaid'}</span></div>`).join('')}
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-size:13px"><span style="color:var(--muted)">Total Expected</span><span style="font-weight:700;color:var(--amber)">${totalExp.toLocaleString()} SAR</span></div>
+      <div style="margin-top:6px;display:flex;justify-content:space-between;font-size:13px"><span style="color:var(--muted)">Collected</span><span style="font-weight:700;color:var(--green)">${totalColl.toLocaleString()} SAR</span></div>
+    </div></div>`;
+  }
+}
+function setTab(tab,e){activeTab=tab;document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));e.target.classList.add('active');renderTabContent();}
+function selectVilla(id){selectedId=id;renderSidebar();renderStats();renderTabContent();draw3D();}
+let editingVillaId=null;
+function openAddVilla(){
+  editingVillaId=null;
+  document.getElementById('modal-title').textContent='Add New Villa';
+  document.getElementById('modal-save-btn').textContent='Save Villa';
+  document.getElementById('f-name').value=`Villa New ${villas.length+1}`;
+  document.getElementById('f-floors').value=2;
+  document.getElementById('f-rooms').value=4;
+  document.getElementById('f-beds').value=4;
+  document.getElementById('f-rent').value=750;
+  document.getElementById('modal').style.display='flex';
+}
+function openEditVilla(id){
+  const v=villas.find(x=>x.id===id);if(!v)return;
+  editingVillaId=id;
+  document.getElementById('modal-title').textContent=`Edit ${v.name}`;
+  document.getElementById('modal-save-btn').textContent='Update Villa';
+  document.getElementById('f-name').value=v.name;
+  document.getElementById('f-floors').value=v.floors;
+  document.getElementById('f-rooms').value=v.roomsPerFloor;
+  document.getElementById('f-beds').value=v.bedsPerRoom;
+  document.getElementById('f-rent').value=v.rentPerBed;
+  document.getElementById('modal').style.display='flex';
+}
+function closeModal(){document.getElementById('modal').style.display='none';editingVillaId=null;}
+async function saveVilla(){
+  const name=document.getElementById('f-name').value.trim()||'Villa New';
+  const floors=parseInt(document.getElementById('f-floors').value)||2;
+  const roomsPerFloor=parseInt(document.getElementById('f-rooms').value)||4;
+  const bedsPerRoom=parseInt(document.getElementById('f-beds').value)||4;
+  const rentPerBed=parseInt(document.getElementById('f-rent').value)||750;
+  if(editingVillaId!==null){
+    // Edit existing — update name and config; rebuild rooms only if structure changed
+    const v=villas.find(x=>x.id===editingVillaId);
+    if(!v){closeModal();return;}
+    const structureChanged=v.floors!==floors||v.roomsPerFloor!==roomsPerFloor||v.bedsPerRoom!==bedsPerRoom;
+    v.name=name;v.floors=floors;v.roomsPerFloor=roomsPerFloor;v.bedsPerRoom=bedsPerRoom;v.rentPerBed=rentPerBed;
+    if(structureChanged){
+      v.rooms=[];
+      for(let f=1;f<=floors;f++){for(let r=1;r<=roomsPerFloor;r++){
+        const beds=makeBeds(bedsPerRoom,rentPerBed);
+        const occBeds=beds.filter(b=>b.occupied).length;
+        v.rooms.push({id:`${v.id}-F${f}R${r}`,floor:f,num:r,type:randOf(ROOM_TYPES),status:occBeds>0?'Occupied':'Vacant',beds,bedsPerRoom,rentPerBed});
+      }}
+    } else {
+      // Just update rent on existing beds
+      v.rooms.forEach(r=>{r.rentPerBed=rentPerBed;r.beds.forEach(b=>b.rent=rentPerBed);});
+    }
+    await dbSaveVilla(v);showToast(`${v.name} updated`);
+    closeModal();renderSidebar();renderStats();renderTabContent();draw3D();
+  } else {
+    const id=Date.now();const rooms=[];
+    for(let f=1;f<=floors;f++){for(let r=1;r<=roomsPerFloor;r++){
+      const beds=makeBeds(bedsPerRoom,rentPerBed);
+      const occBeds=beds.filter(b=>b.occupied).length;
+      rooms.push({id:`${id}-F${f}R${r}`,floor:f,num:r,type:randOf(ROOM_TYPES),status:occBeds>0?'Occupied':'Vacant',beds,bedsPerRoom,rentPerBed});
+    }}
+    const maintenanceItems=[{title:'Initial Inspection',priority:'Low',status:'Pending',room:'F1R1'}];
+    const newVilla={id,name,floors,roomsPerFloor,bedsPerRoom,rentPerBed,rooms,maintenanceItems};
+    villas.push(newVilla);selectedId=id;
+    await dbSaveVilla(newVilla);showToast(`${name} added`);
+    closeModal();renderSidebar();renderStats();renderTabContent();draw3D();
+  }
+}
+function addMaintItem(){const v=getSelectedVilla();v.maintenanceItems.push({title:randOf(['AC Service','Plumbing','Electrical','Painting','Cleaning']),priority:randOf(['Low','Medium','High']),status:randOf(['Pending','In Progress','Done']),room:`F${randInt(1,v.floors)}R${randInt(1,v.roomsPerFloor)}`});dbSaveVilla(v);renderTabContent();}
+
+async function deleteVilla(id){
+  if(!confirm('Delete this villa? This cannot be undone.')) return;
+  villas=villas.filter(v=>v.id!==id);
+  await dbDeleteVilla(id);
+  selectedId=villas.length?villas[0].id:null;
+  showToast('Villa deleted');
+  renderSidebar();
+  if(selectedId){renderStats();renderTabContent();draw3D();}
+  else{document.getElementById('stats-grid').innerHTML='';document.getElementById('tab-content').innerHTML='';}
+}
+
+function startEditBedName(el,villaId,roomId,bedId){
+  const current=el.textContent.trim();
+  const input=document.createElement('input');
+  input.className='bed-edit-input';
+  input.value=current;
+  el.replaceWith(input);
+  input.focus();input.select();
+  const save=async()=>{
+    const newName=input.value.trim()||current;
+    const v=villas.find(x=>String(x.id)===String(villaId));
+    const room=v?.rooms.find(r=>r.id===roomId);
+    const bed=room?.beds.find(b=>b.id===bedId);
+    if(bed){bed.tenant=newName;await dbSaveVilla(v);}
+    renderTabContent();
+  };
+  input.addEventListener('blur',save);
+  input.addEventListener('keydown',e=>{if(e.key==='Enter')input.blur();if(e.key==='Escape'){input.value=current;input.blur();}});
+}
+window.addEventListener('resize',resizeCanvas);
+
+// ── Async init ───────────────────────────────────────────────────────────────
+(async()=>{
+  try{
+    const rows=await dbLoadVillas();
+    if(rows&&rows.length){
+      villas=rows;
+    } else {
+      // First run — seed with demo data and save to Supabase
+      villas=NAMES.slice(0,randInt(8,12)).map((n,i)=>generateVilla(i+1,n));
+      await Promise.all(villas.map(v=>dbSaveVilla(v)));
+      showToast('Demo villas created in Supabase');
+    }
+    selectedId=villas[0].id;
+  }catch(e){
+    showToast('Supabase error: '+e.message,true);
+    villas=NAMES.slice(0,8).map((n,i)=>generateVilla(i+1,n));
+    selectedId=villas[0].id;
+  }finally{
+    document.getElementById('loading-overlay').style.display='none';
+    resizeCanvas();renderSidebar();renderStats();renderTabContent();
+  }
+})();
+
+function autoRotate(){if(!dragging){rot.y+=0.003;draw3D();}requestAnimationFrame(autoRotate);}
+autoRotate();
+</script>
+</body>
+</html>
