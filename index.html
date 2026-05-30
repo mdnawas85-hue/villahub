@@ -44,6 +44,8 @@
   .villa-delete{display:none;align-items:center;justify-content:center;width:22px;height:22px;border-radius:5px;background:rgba(231,76,60,.12);border:1px solid rgba(231,76,60,.3);color:var(--red);font-size:11px;flex-shrink:0;cursor:pointer;transition:all .15s}
   .villa-delete:hover{background:rgba(231,76,60,.28)}
   .villa-item:hover .villa-edit,.villa-item:hover .villa-delete{display:flex}
+  .villa-map-btn{display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:5px;background:rgba(26,188,156,.12);border:1px solid rgba(26,188,156,.35);font-size:11px;flex-shrink:0;cursor:pointer;transition:all .15s}
+  .villa-map-btn:hover{background:rgba(26,188,156,.28)}
   .bed-edit-input{background:transparent;border:none;border-bottom:1px solid var(--accent);color:var(--text);font-size:11px;width:80px;outline:none;padding:1px 2px}
   .bed-name-label{cursor:pointer;font-size:11px;color:var(--text)}
   .bed-name-label:hover{text-decoration:underline dotted var(--muted)}
@@ -195,6 +197,15 @@
         <label class="form-label">Rent / Bed Space (SAR)</label>
         <input class="form-input" id="f-rent" type="number" min="0" value="750"/>
       </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">📍 Location (Google Maps coordinates)</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input class="form-input" id="f-lat" type="number" step="any" placeholder="Latitude e.g. 24.7136" style="flex:1"/>
+        <input class="form-input" id="f-lng" type="number" step="any" placeholder="Longitude e.g. 46.6753" style="flex:1"/>
+        <button type="button" class="btn btn-secondary" onclick="useMyLocation()" title="Use current location" style="padding:6px 10px;flex-shrink:0">📡</button>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:4px">Paste coordinates from Google Maps, or click 📡 to use device location</div>
     </div>
     <div class="btn-row">
       <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
@@ -499,6 +510,7 @@ function renderSidebar(){
       <div class="villa-dot" style="background:${dotColor}"></div>
       <span class="villa-name">${v.name}</span>
       <span class="villa-badge">${occBeds}/${totalBeds}</span>
+      ${v.lat&&v.lng?`<div class="villa-map-btn" onclick="event.stopPropagation();openMap(${v.id})" title="View on Google Maps">📍</div>`:''}
       <div class="villa-edit" onclick="event.stopPropagation();openEditVilla(${v.id})" title="Edit villa">✏️</div>
       <div class="villa-delete" onclick="event.stopPropagation();deleteVilla(${v.id})" title="Delete villa">🗑</div>
     </div>`;
@@ -582,6 +594,8 @@ function openAddVilla(){
   document.getElementById('f-rooms').value=4;
   document.getElementById('f-beds').value=4;
   document.getElementById('f-rent').value=750;
+  document.getElementById('f-lat').value='';
+  document.getElementById('f-lng').value='';
   document.getElementById('modal').style.display='flex';
 }
 function openEditVilla(id){
@@ -594,6 +608,8 @@ function openEditVilla(id){
   document.getElementById('f-rooms').value=v.roomsPerFloor;
   document.getElementById('f-beds').value=v.bedsPerRoom;
   document.getElementById('f-rent').value=v.rentPerBed;
+  document.getElementById('f-lat').value=v.lat||'';
+  document.getElementById('f-lng').value=v.lng||'';
   document.getElementById('modal').style.display='flex';
 }
 function closeModal(){document.getElementById('modal').style.display='none';editingVillaId=null;}
@@ -603,12 +619,15 @@ async function saveVilla(){
   const roomsPerFloor=parseInt(document.getElementById('f-rooms').value)||4;
   const bedsPerRoom=parseInt(document.getElementById('f-beds').value)||4;
   const rentPerBed=parseInt(document.getElementById('f-rent').value)||750;
+  const lat=parseFloat(document.getElementById('f-lat').value)||null;
+  const lng=parseFloat(document.getElementById('f-lng').value)||null;
   if(editingVillaId!==null){
     // Edit existing — update name and config; rebuild rooms only if structure changed
     const v=villas.find(x=>x.id===editingVillaId);
     if(!v){closeModal();return;}
     const structureChanged=v.floors!==floors||v.roomsPerFloor!==roomsPerFloor||v.bedsPerRoom!==bedsPerRoom;
     v.name=name;v.floors=floors;v.roomsPerFloor=roomsPerFloor;v.bedsPerRoom=bedsPerRoom;v.rentPerBed=rentPerBed;
+    v.lat=lat;v.lng=lng;
     if(structureChanged){
       v.rooms=[];
       for(let f=1;f<=floors;f++){for(let r=1;r<=roomsPerFloor;r++){
@@ -630,7 +649,7 @@ async function saveVilla(){
       rooms.push({id:`${id}-F${f}R${r}`,floor:f,num:r,type:randOf(ROOM_TYPES),status:occBeds>0?'Occupied':'Vacant',beds,bedsPerRoom,rentPerBed});
     }}
     const maintenanceItems=[{title:'Initial Inspection',priority:'Low',status:'Pending',room:'F1R1'}];
-    const newVilla={id,name,floors,roomsPerFloor,bedsPerRoom,rentPerBed,rooms,maintenanceItems};
+    const newVilla={id,name,floors,roomsPerFloor,bedsPerRoom,rentPerBed,rooms,maintenanceItems,lat,lng};
     villas.push(newVilla);selectedId=id;
     await dbSaveVilla(newVilla);showToast(`${name} added`);
     closeModal();renderSidebar();renderStats();renderTabContent();draw3D();
@@ -701,6 +720,19 @@ async function saveBedModal(){
   await dbSaveVilla(v);
   showToast('Bed updated');
   renderStats();renderTabContent();draw3D();
+}
+function openMap(villaId){
+  const v=villas.find(x=>x.id===villaId);
+  if(!v||!v.lat||!v.lng){showToast('No location set for this villa',true);return;}
+  window.open(`https://www.google.com/maps?q=${v.lat},${v.lng}&z=17&t=m`,'_blank');
+}
+function useMyLocation(){
+  if(!navigator.geolocation){showToast('Geolocation not supported',true);return;}
+  navigator.geolocation.getCurrentPosition(pos=>{
+    document.getElementById('f-lat').value=pos.coords.latitude.toFixed(6);
+    document.getElementById('f-lng').value=pos.coords.longitude.toFixed(6);
+    showToast('Location detected ✓');
+  },()=>showToast('Could not get location',true));
 }
 window.addEventListener('resize',resizeCanvas);
 
