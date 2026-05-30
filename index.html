@@ -295,7 +295,7 @@ async function dbLoadVillas(){
 
 let villas=[],selectedId=null,activeTab='rooms';
 const canvas=document.getElementById('villa3d'),ctx=canvas.getContext('2d');
-let rot={x:.46,y:.32},dragging=false,lastMouse={x:0,y:0};
+let rot={x:.45,y:.5},dragging=false,lastMouse={x:0,y:0};
 canvas.addEventListener('mousedown',e=>{dragging=true;lastMouse={x:e.clientX,y:e.clientY}});
 canvas.addEventListener('mousemove',e=>{if(!dragging)return;rot.y+=(e.clientX-lastMouse.x)*0.01;rot.x+=(e.clientY-lastMouse.y)*0.005;rot.x=Math.max(0.1,Math.min(0.7,rot.x));lastMouse={x:e.clientX,y:e.clientY};draw3D();});
 canvas.addEventListener('mouseup',()=>dragging=false);
@@ -406,125 +406,74 @@ function draw3D(){
   ctx.fillStyle='#000';ctx.fill();
   ctx.restore();
 
-  // ── Interior diorama — draw immediate face helper ──────────────────
-  function dF(pts3,color,shade,la=0.2,lw=0.8){
-    const p=pts3.map(pt=>project3D(pt[0],pt[1],pt[2],cx,cy,scale));
-    ctx.beginPath();ctx.moveTo(p[0].x,p[0].y);
-    for(let i=1;i<p.length;i++)ctx.lineTo(p[i].x,p[i].y);
-    ctx.closePath();
-    ctx.fillStyle=shadeColor(color,shade);ctx.fill();
-    ctx.strokeStyle=`rgba(0,0,0,${la})`;ctx.lineWidth=lw;ctx.stroke();
-  }
-  function dBox(x,y,z,w,h,d,c){
-    dF([[x,y,z],[x+w,y,z],[x+w,y+h,z],[x,y+h,z]],c,1.0);
-    dF([[x,y,z+d],[x+w,y,z+d],[x+w,y+h,z+d],[x,y+h,z+d]],c,0.55);
-    dF([[x,y,z],[x+w,y,z],[x+w,y,z+d],[x,y,z+d]],c,0.65);
-    dF([[x,y+h,z],[x+w,y+h,z],[x+w,y+h,z+d],[x,y+h,z+d]],c,0.95);
-    dF([[x+w,y,z],[x+w,y,z+d],[x+w,y+h,z+d],[x+w,y+h,z]],c,0.80);
-    dF([[x,y,z],[x,y,z+d],[x,y+h,z+d],[x,y+h,z]],c,0.70);
-  }
-
   // ── Ground slab ──────────────────────────────────────────────────────
-  dBox(-BW/2,-0.15,-D/2,BW,0.15,D,'#1e2a3a');
+  drawBox3D(-BW/2,-0.15,-D/2,BW,0.15,D,'#1e2a3a',cx,cy,scale);
 
-  // ── Floors & rooms — draw back→front, room by room ───────────────────
-  const statusColors={Occupied:'#27ae60',Vacant:'#2980b9',Maintenance:'#c0392b',Reserved:'#d68910'};
+  // ── Floors & rooms ────────────────────────────────────────────────────
+  const roomColors={Occupied:'#27ae60',Vacant:'#2980b9',Maintenance:'#c0392b',Reserved:'#d68910'};
+  const bedOccColor='#1a5c35', bedVacColor='#1a3a6b';
+  const pilOccColor='#2ecc71', pilVacColor='#3498db';
   const rW=BW/rX;
 
-  // Determine floor & room depth order for painter's algorithm
-  const allRooms=[];
   for(let f=0;f<floors;f++){
-    for(let r=0;r<rX;r++){
-      const rx=-BW/2+r*rW, fy=f*FH, rz=-D/2;
-      const cp=project3D(rx+rW/2,fy+FH/2,rz+D/2,cx,cy,scale);
-      allRooms.push({f,r,rx,fy,rz,depth:cp.z});
-    }
-  }
-  allRooms.sort((a,b)=>b.depth-a.depth); // furthest first
-
-  // Floor-separator slabs drawn back-to-front by floor
-  for(let f=1;f<floors;f++){
     const fy=f*FH;
-    const sp=project3D(0,fy-0.04,0,cx,cy,scale);
-    // draw slab — just top+front+sides
-    dF([[-BW/2,fy-0.08,-D/2],[BW/2,fy-0.08,-D/2],[BW/2,fy,-D/2],[-BW/2,fy,-D/2]],'#2a3248',1.0);
-    dF([[-BW/2,fy,-D/2],[BW/2,fy,-D/2],[BW/2,fy,-D/2+D],[-BW/2,fy,-D/2+D]],'#2a3248',0.9);
+    if(f>0) drawBox3D(-BW/2,fy-0.07,-D/2,BW,0.07,D,'#2a3248',cx,cy,scale);
+    for(let r=0;r<rX;r++){
+      const room=v.rooms[f*rX+r];
+      const fc=roomColors[room?.status]||'#2980b9';
+      const rx=-BW/2+r*rW;
+      // Draw solid room box (the building exterior look)
+      drawBox3D(rx,fy,-D/2,rW,FH,D,fc,cx,cy,scale);
+      // Window on front face
+      const wx=rx+rW*0.2,wy=fy+FH*0.35,wz=-D/2-0.01,ww=rW*0.6,wh=FH*0.3;
+      const wp=[project3D(wx,wy,wz,cx,cy,scale),project3D(wx+ww,wy,wz,cx,cy,scale),
+                project3D(wx+ww,wy+wh,wz,cx,cy,scale),project3D(wx,wy+wh,wz,cx,cy,scale)];
+      ctx.beginPath();ctx.moveTo(wp[0].x,wp[0].y);wp.forEach(p=>ctx.lineTo(p.x,p.y));ctx.closePath();
+      ctx.fillStyle='rgba(90,180,212,0.25)';ctx.fill();
+      ctx.strokeStyle='rgba(90,180,212,0.5)';ctx.lineWidth=0.8;ctx.stroke();
+    }
+    // Floor label
+    const lp=project3D(-BW/2-0.45,fy+FH/2,-D/2,cx,cy,scale);
+    ctx.fillStyle='rgba(136,146,164,0.9)';ctx.font=`bold ${Math.max(9,scale*0.18)}px sans-serif`;
+    ctx.textAlign='right';ctx.fillText(`F${f+1}`,lp.x,lp.y+4);ctx.textAlign='left';
+
   }
 
-  for(const ro of allRooms){
-    const {f,r,rx,fy,rz}=ro;
-    const room=v.rooms[f*rX+r];
-    const isL=r===0,isR=r===rX-1;
-    const sc=statusColors[room?.status]||'#2980b9';
-
-    // 1. Back wall (status color)
-    dF([[rx,fy,rz+D],[rx+rW,fy,rz+D],[rx+rW,fy+FH,rz+D],[rx,fy+FH,rz+D]],sc,0.65);
-    // Window on back wall
-    const wW=rW*0.42,wH=FH*0.3,wxl=rx+(rW-wW)/2,wxr=rx+(rW+wW)/2;
-    const wyl=fy+FH*0.35,wyr=fy+FH*0.65,wz=rz+D-0.001;
-    dF([[wxl,wyl,wz],[wxr,wyl,wz],[wxr,wyr,wz],[wxl,wyr,wz]],'#5ab4d4',1.0,0.15,0.6);
-
-    // 2. Floor surface (warm wood tone)
-    dF([[rx,fy,rz],[rx+rW,fy,rz],[rx+rW,fy,rz+D],[rx,fy,rz+D]],'#3d2b1a',1.0);
-
-    // 5. Beds — sorted back to front within room
-    if(room?.beds?.length){
-      const beds=room.beds,n=beds.length;
-      const cols=n>2?2:1,rows=Math.ceil(n/cols);
-      const bW=rW*0.58,bDsz=D*0.34,bH=0.2;
-      const xStep=rW/(cols+1),zStep=D/(rows+1);
-
-      // Sort beds: higher bz (back of room) first
-      const bedList=beds.map((bed,bi)=>{
-        const col=bi%cols,row=Math.floor(bi/cols);
-        return{bed,bi,bxc:rx+xStep*(col+1),bzc:rz+zStep*(row+1)};
-      }).sort((a,b)=>b.bzc-a.bzc);
-
-      bedList.forEach(({bed,bi,bxc,bzc})=>{
-        const bx=bxc-bW/2,bz=bzc-bDsz/2,by=fy+0.04;
-        const bc=bed.occupied?'#1e7a46':'#1a4a80';
-        const pc=bed.occupied?'#2ecc71':'#3498db';
-        // Mattress faces: back → top → sides (no front face)
-        dF([[bx,by,bz+bDsz],[bx+bW,by,bz+bDsz],[bx+bW,by+bH,bz+bDsz],[bx,by+bH,bz+bDsz]],bc,0.55);
-        dF([[bx,by+bH,bz],[bx+bW,by+bH,bz],[bx+bW,by+bH,bz+bDsz],[bx,by+bH,bz+bDsz]],bc,1.0);
-        dF([[bx+bW,by,bz],[bx+bW,by,bz+bDsz],[bx+bW,by+bH,bz+bDsz],[bx+bW,by+bH,bz]],bc,0.80);
-        dF([[bx,by,bz],[bx,by,bz+bDsz],[bx,by+bH,bz+bDsz],[bx,by+bH,bz]],bc,0.65);
-        // Pillow
-        const pW=bW*0.68,pD=bDsz*0.2,pH=0.1;
-        const px=bx+(bW-pW)/2,pz=bz+0.04,py=by+bH;
-        dF([[px,py,pz],[px+pW,py,pz],[px+pW,py,pz+pD],[px,py,pz+pD]],pc,0.65);
-        dF([[px,py+pH,pz],[px+pW,py+pH,pz],[px+pW,py+pH,pz+pD],[px,py+pH,pz+pD]],pc,1.0);
-        dF([[px+pW,py,pz],[px+pW,py,pz+pD],[px+pW,py+pH,pz+pD],[px+pW,py+pH,pz]],pc,0.75);
-        // Bed label
-        const lp=project3D(bxc,py+pH+0.06,bzc,cx,cy,scale);
-        ctx.fillStyle=bed.occupied?'#2ecc71':'#4f8ef7';
-        ctx.font=`bold ${Math.max(7,scale*0.13)}px sans-serif`;
-        ctx.textAlign='center';
-        ctx.fillText(bi+1,lp.x,lp.y);
-        ctx.textAlign='left';
-      });
-    }
-
-    // 6. Walls drawn AFTER beds so they appear on top
-    if(isL) dF([[rx,fy,rz],[rx,fy,rz+D],[rx,fy+FH,rz+D],[rx,fy+FH,rz]],'#3a5070',0.85);
-    if(!isR) dF([[rx+rW,fy,rz],[rx+rW,fy,rz+D],[rx+rW,fy+FH,rz+D],[rx+rW,fy+FH,rz]],'#3a5070',0.88);
-    // Front trim
-    dF([[rx,fy,rz],[rx+rW,fy,rz],[rx+rW,fy+FH,rz],[rx,fy+FH,rz]],'#4a6080',0.6,0.08,0.8);
-
-    // Floor label (leftmost room, first pass)
-    if(isL){
-      const lp=project3D(rx-0.3,fy+FH*0.5,rz,cx,cy,scale);
-      ctx.fillStyle='rgba(136,146,164,0.85)';ctx.font=`bold ${Math.max(9,scale*0.16)}px sans-serif`;
-      ctx.fillText(`F${f+1}`,lp.x,lp.y);
-    }
-  }
-
-  // Rooftop parapet
-  dBox(-BW/2,totalH,-D/2,BW,0.2,D,'#2a3248');
-  // AC units
+  // ── Rooftop parapet & AC units ────────────────────────────────────────
+  drawBox3D(-BW/2,totalH,-D/2,BW,0.22,D,'#2a3248',cx,cy,scale);
   for(let i=0;i<Math.min(3,rX);i++){
     const ax=-BW/2+i*(BW/3)+BW*0.08;
-    dBox(ax,totalH+0.2,-D/2+0.3,BW*0.17,0.24,D*0.24,'#1e2535');
+    drawBox3D(ax,totalH+0.22,-D/2+0.3,BW*0.18,0.25,D*0.25,'#1e2535',cx,cy,scale);
+  }
+
+  // ── Beds drawn LAST so they appear on top of everything ───────────────
+  for(let f=0;f<floors;f++){
+    const fy=f*FH, ty=fy+FH+0.23; // sit just above rooftop parapet height
+    for(let r=0;r<rX;r++){
+      const room=v.rooms[f*rX+r];
+      if(!room?.beds?.length) continue;
+      const rx=-BW/2+r*rW;
+      const beds=room.beds, n=beds.length;
+      const cols=n>2?2:1, rows=Math.ceil(n/cols);
+      const bW=rW*0.50, bDsz=D*0.30, bH=0.18;
+      const xStep=rW/(cols+1), zStep=D/(rows+1);
+      const bedList=beds.map((bed,bi)=>{
+        const col=bi%cols, row=Math.floor(bi/cols);
+        return{bed,bi,bxc:rx+xStep*(col+1),bzc:-D/2+zStep*(row+1)};
+      }).sort((a,b)=>b.bzc-a.bzc);
+      bedList.forEach(({bed,bi,bxc,bzc})=>{
+        const bx=bxc-bW/2, bz=bzc-bDsz/2, by=ty;
+        const bc=bed.occupied?bedOccColor:bedVacColor;
+        const pc=bed.occupied?pilOccColor:pilVacColor;
+        drawBox3D(bx,by,bz,bW,bH,bDsz,bc,cx,cy,scale);
+        const pW=bW*0.62, pD=bDsz*0.2, pH=0.07;
+        drawBox3D(bx+(bW-pW)/2,by+bH,bz+0.04,pW,pH,pD,pc,cx,cy,scale);
+        const lp=project3D(bxc,by+bH+pH+0.06,bzc,cx,cy,scale);
+        ctx.fillStyle=bed.occupied?'#2ecc71':'#4f8ef7';
+        ctx.font=`bold ${Math.max(7,scale*0.13)}px sans-serif`;
+        ctx.textAlign='center';ctx.fillText(bi+1,lp.x,lp.y);ctx.textAlign='left';
+      });
+    }
   }
 
   // ── Legend ────────────────────────────────────────────────────────────
