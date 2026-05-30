@@ -89,6 +89,19 @@
   .add-btn:hover{background:rgba(79,142,247,.25)}
   .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;display:flex;align-items:center;justify-content:center}
   .modal{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:24px;width:400px;max-width:90vw}
+  .bed-popup{position:fixed;z-index:150;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;width:240px;box-shadow:0 8px 32px rgba(0,0,0,.5)}
+  .bed-popup-title{font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between}
+  .bed-popup-close{cursor:pointer;color:var(--muted);font-size:16px;line-height:1}
+  .bed-popup-close:hover{color:var(--text)}
+  .toggle-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;font-size:12px;color:var(--muted)}
+  .toggle-switch{position:relative;width:36px;height:20px;cursor:pointer}
+  .toggle-switch input{opacity:0;width:0;height:0}
+  .toggle-track{position:absolute;inset:0;background:var(--border);border-radius:10px;transition:.2s}
+  .toggle-switch input:checked+.toggle-track{background:var(--green)}
+  .toggle-knob{position:absolute;top:2px;left:2px;width:16px;height:16px;background:#fff;border-radius:50%;transition:.2s}
+  .toggle-switch input:checked~.toggle-knob{left:18px}
+  .bed-card{cursor:pointer;transition:transform .1s}
+  .bed-card:hover{transform:scale(1.02)}
   .modal h3{font-size:16px;margin-bottom:16px}
   .form-group{margin-bottom:14px}
   .form-label{font-size:12px;color:var(--muted);margin-bottom:6px;display:block}
@@ -451,15 +464,11 @@ function bedSpaceGrid(room){
     const color=b.occupied?'var(--green)':'var(--border)';
     const bg=b.occupied?'rgba(46,204,113,0.12)':'rgba(42,50,72,0.5)';
     const vid=getSelectedVilla().id,rid=room.id,bid=b.id;
-    return`<div style="border:1px solid ${color};background:${bg};border-radius:6px;padding:5px 8px;display:flex;align-items:center;gap:6px;min-width:0">
+    return`<div class="bed-card" style="border:1px solid ${color};background:${bg};border-radius:6px;padding:5px 8px;display:flex;align-items:center;gap:6px;min-width:0" onclick="openBedPopup(event,'${vid}','${rid}',${bid})">
       <div style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></div>
       <div style="min-width:0;flex:1">
         <div style="font-size:11px;font-weight:600;color:${b.occupied?'var(--text)':'var(--muted)'}">Bed ${b.id}</div>
-        <div style="font-size:10px;color:var(--muted)">
-          ${b.occupied
-            ? `<span class="bed-name-label" onclick="startEditBedName(this,'${vid}','${rid}',${bid})" title="Click to rename">${b.tenant}</span>`
-            : 'Vacant'}
-        </div>
+        <div style="font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${b.occupied?b.tenant:'Vacant'}</div>
       </div>
       ${b.occupied?`<span class="badge badge-${b.paid?'green':'red'}" style="margin-left:auto;flex-shrink:0">${b.paid?'Paid':'Due'}</span>`:''}
     </div>`;
@@ -577,23 +586,82 @@ async function deleteVilla(id){
   else{document.getElementById('stats-grid').innerHTML='';document.getElementById('tab-content').innerHTML='';}
 }
 
-function startEditBedName(el,villaId,roomId,bedId){
-  const current=el.textContent.trim();
-  const input=document.createElement('input');
-  input.className='bed-edit-input';
-  input.value=current;
-  el.replaceWith(input);
-  input.focus();input.select();
-  const save=async()=>{
-    const newName=input.value.trim()||current;
-    const v=villas.find(x=>String(x.id)===String(villaId));
-    const room=v?.rooms.find(r=>r.id===roomId);
-    const bed=room?.beds.find(b=>b.id===bedId);
-    if(bed){bed.tenant=newName;await dbSaveVilla(v);}
-    renderTabContent();
-  };
-  input.addEventListener('blur',save);
-  input.addEventListener('keydown',e=>{if(e.key==='Enter')input.blur();if(e.key==='Escape'){input.value=current;input.blur();}});
+function closeBedPopup(){const p=document.getElementById('bed-popup');if(p)p.remove();}
+
+function openBedPopup(evt,villaId,roomId,bedId){
+  evt.stopPropagation();
+  closeBedPopup();
+  const v=villas.find(x=>String(x.id)===String(villaId));
+  const room=v?.rooms.find(r=>r.id===roomId);
+  const bed=room?.beds.find(b=>b.id===bedId);
+  if(!bed) return;
+
+  const pop=document.createElement('div');
+  pop.id='bed-popup';pop.className='bed-popup';
+  pop.innerHTML=`
+    <div class="bed-popup-title">
+      <span>✏️ Edit Bed ${bed.id}</span>
+      <span class="bed-popup-close" onclick="closeBedPopup()">×</span>
+    </div>
+    <div class="toggle-row">
+      <span>Occupied</span>
+      <label class="toggle-switch">
+        <input type="checkbox" id="bp-occ" ${bed.occupied?'checked':''}>
+        <div class="toggle-track"></div>
+        <div class="toggle-knob"></div>
+      </label>
+    </div>
+    <div class="form-group" id="bp-name-group" style="${bed.occupied?'':'display:none'}">
+      <label class="form-label">Tenant Name</label>
+      <input class="form-input" id="bp-name" value="${bed.occupied?bed.tenant:''}" placeholder="Tenant name"/>
+    </div>
+    <div class="toggle-row" id="bp-paid-row" style="${bed.occupied?'':'display:none'}">
+      <span>Rent Paid</span>
+      <label class="toggle-switch">
+        <input type="checkbox" id="bp-paid" ${bed.paid?'checked':''}>
+        <div class="toggle-track"></div>
+        <div class="toggle-knob"></div>
+      </label>
+    </div>
+    <div class="btn-row" style="margin-top:14px">
+      <button class="btn btn-secondary" onclick="closeBedPopup()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveBedPopup('${villaId}','${roomId}',${bedId})">Save</button>
+    </div>`;
+  document.body.appendChild(pop);
+
+  // toggle name/paid fields when occupied changes
+  pop.querySelector('#bp-occ').addEventListener('change',e=>{
+    const show=e.target.checked;
+    pop.querySelector('#bp-name-group').style.display=show?'':'none';
+    pop.querySelector('#bp-paid-row').style.display=show?'':'none';
+  });
+
+  // position near click
+  const x=Math.min(evt.clientX+10,window.innerWidth-260);
+  const y=Math.min(evt.clientY+10,window.innerHeight-320);
+  pop.style.left=x+'px';pop.style.top=y+'px';
+
+  // close on outside click
+  setTimeout(()=>document.addEventListener('click',function h(e){if(!pop.contains(e.target)){closeBedPopup();document.removeEventListener('click',h);}}),0);
+}
+
+async function saveBedPopup(villaId,roomId,bedId){
+  const v=villas.find(x=>String(x.id)===String(villaId));
+  const room=v?.rooms.find(r=>r.id===roomId);
+  const bed=room?.beds.find(b=>b.id===bedId);
+  if(!bed) return;
+  const occupied=document.getElementById('bp-occ').checked;
+  const name=document.getElementById('bp-name')?.value.trim()||'—';
+  const paid=document.getElementById('bp-paid')?.checked||false;
+  bed.occupied=occupied;
+  bed.tenant=occupied?name:'—';
+  bed.paid=occupied?paid:false;
+  const occBeds=room.beds.filter(b=>b.occupied).length;
+  room.status=occBeds===room.bedsPerRoom?'Occupied':occBeds===0?'Vacant':'Occupied';
+  closeBedPopup();
+  await dbSaveVilla(v);
+  showToast('Bed updated');
+  renderStats();renderTabContent();draw3D();
 }
 window.addEventListener('resize',resizeCanvas);
 
